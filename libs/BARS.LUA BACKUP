@@ -1,0 +1,1267 @@
+local _, ns = ...
+local addon = ns.addon
+local module = ns.modules.bars
+local LSM = LibStub("LibSharedMedia-3.0")
+
+LSM:Register("statusbar", "g1", "Interface\\AddOns\\rnxmUI\\Textures\\g1.tga")
+-- Create a shared state table for bar dimensions that can be accessed by other modules
+ns.barDimensions = ns.barDimensions or {}
+
+function module:StripDefaultUI()
+    -- Use the consolidated stripping approach
+    self.SetupFrameStripping()
+end
+
+-- Debug function
+local function Debug(...)
+    if ns.IsDebugMode() then
+        print("|cff00ccffrnxmUI Bars:|r", ...)
+    end
+end
+
+-- Check if module exists
+if not module then
+    Debug("ERROR: Bars module not found! Check modules.lua")
+    return
+end
+
+-- === UTILITY FUNCTIONS ===
+
+-- Helper Functions for frame anchoring
+local function FollowFrameAnchor(child, anchor, point, relPoint, xOfs, yOfs)
+    child:ClearAllPoints()
+    child:SetPoint(point, anchor, relPoint, xOfs, yOfs)
+
+    hooksecurefunc(anchor, "SetPoint", function()
+        if child and child:IsVisible() then
+            child:ClearAllPoints()
+            child:SetPoint(point, anchor, relPoint, xOfs, yOfs)
+        end
+    end)
+end
+
+local function GetClassOrReactionColor(unit)
+    -- First check if unit exists
+    if not UnitExists(unit) then
+        return {0.7, 0.7, 0.7} -- Default gray for non-existent units
+    end
+    
+    -- Handle pet class coloring (use owner's class but brighter)
+if unit == "pet" then
+    local _, ownerClass = UnitClass("player")
+    local colors = CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS
+    if colors and ownerClass then
+        local c = colors[ownerClass]
+        -- Make it brighter by increasing each color component
+        local brightnessFactor = 1.3
+        return { 
+            math.min(c.r * brightnessFactor, 1), 
+            math.min(c.g * brightnessFactor, 1), 
+            math.min(c.b * brightnessFactor, 1) 
+        }
+    end
+end
+    
+    if UnitIsPlayer(unit) then
+        local _, class = UnitClass(unit)
+        local colors = CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS
+        if colors and class then
+            local c = colors[class]
+            return { c.r, c.g, c.b }
+        end
+    else
+        local reaction = UnitReaction(unit, "player")
+        if reaction then
+            if reaction <= 3 then
+                return {1, 0, 0, 1} --{0.816, 0.267, 0.271}   -- Hostile (1-3)
+            elseif reaction == 4 then
+                return {1, 1, 0}   -- Neutral
+            else
+                return {0, 1, 0}   -- Friendly (5+)
+            end
+        end
+    end
+    
+    -- Default fallback color if nothing else matched
+    return {0.7, 0.7, 0.7}
+end
+
+-- Enhanced color update function with better unit checking
+local function UpdateUnitBarColors()
+    Debug("Updating unit bar colors")
+    local units = {
+        { frame = _G.rnxmPlayerFrame, unit = "player" },
+        { frame = _G.rnxmTargetFrame, unit = "target" },
+        { frame = _G.rnxmFocusFrame,  unit = "focus" },
+        { frame = _G.rnxmPetFrame, unit = "pet" },
+        { frame = _G.rnxmTargetOfTargetFrame, unit = "targettarget" },
+        { frame = _G.rnxmFocusOfTargetFrame, unit = "focustarget" },
+    }
+
+    for _, info in ipairs(units) do
+        -- Only update if unit exists
+        if UnitExists(info.unit) then
+            local color = GetClassOrReactionColor(info.unit)
+            if info.frame and info.frame.health and color then
+                info.frame.health:SetStatusBarColor(unpack(color))
+                Debug("Updated color for " .. info.unit .. " - Player: " .. tostring(UnitIsPlayer(info.unit)) .. 
+                      ", Class: " .. tostring(select(2, UnitClass(info.unit))))
+            end
+        else
+            -- Set default color for non-existent units
+            if info.frame and info.frame.health then
+                info.frame.health:SetStatusBarColor(0.7, 0.7, 0.7)
+                Debug("Set default color for non-existent unit: " .. info.unit)
+            end
+        end
+    end
+end
+
+-- Function to apply colors immediately to a specific unit
+local function ApplyColorToUnit(unit)
+    local color = GetClassOrReactionColor(unit)
+    local frame = nil
+    
+    -- Get the correct frame reference
+    if unit == "player" then
+        frame = _G.rnxmPlayerFrame
+    elseif unit == "target" then
+        frame = _G.rnxmTargetFrame
+    elseif unit == "focus" then
+        frame = _G.rnxmFocusFrame
+    elseif unit == "pet" then
+        frame = _G.rnxmPetFrame
+    elseif unit == "targettarget" then
+        frame = _G.rnxmTargetOfTargetFrame
+    elseif unit == "focustarget" then
+        frame = _G.rnxmFocusOfTargetFrame
+    end
+    
+    if frame and frame.health and color then
+        frame.health:SetStatusBarColor(unpack(color))
+        Debug("Applied immediate color to " .. unit)
+    end
+end
+
+-- Function to set default colors for frames that might not have units yet
+local function SetDefaultColorsForEmptyFrames()
+    local units = {
+        { frame = _G.rnxmPetFrame, unit = "pet" },
+        { frame = _G.rnxmTargetOfTargetFrame, unit = "targettarget" },
+        { frame = _G.rnxmFocusOfTargetFrame, unit = "focustarget" },
+    }
+    
+    for _, info in ipairs(units) do
+        if info.frame and info.frame.health and not UnitExists(info.unit) then
+            -- Set a neutral gray color for empty frames instead of white
+            info.frame.health:SetStatusBarColor(0.5, 0.5, 0.5)
+            Debug("Set default gray color for empty " .. info.unit .. " frame")
+        end
+    end
+end
+
+-- Enhanced event handler setup
+function module:SetupColorUpdater()
+    -- Clean up existing updater
+    if self.colorUpdater then
+        self.colorUpdater:UnregisterAllEvents()
+        self.colorUpdater:SetScript("OnEvent", nil)
+        self.colorUpdater = nil
+    end
+    
+    -- Setup color updater with more comprehensive events
+    local colorUpdater = CreateFrame("Frame")
+    
+    -- Core events
+    colorUpdater:RegisterEvent("PLAYER_ENTERING_WORLD")
+    colorUpdater:RegisterEvent("PLAYER_TARGET_CHANGED")
+    colorUpdater:RegisterEvent("PLAYER_FOCUS_CHANGED")
+    
+    -- Unit-specific events
+    colorUpdater:RegisterEvent("UNIT_CLASSIFICATION_CHANGED")
+    colorUpdater:RegisterEvent("UNIT_NAME_UPDATE")
+    colorUpdater:RegisterEvent("UNIT_PET")  -- For pet changes
+
+-- Druid form change events
+    colorUpdater:RegisterEvent("UNIT_DISPLAYPOWER") -- Fires when power type changes (form shifts) 
+    colorUpdater:RegisterEvent("UPDATE_SHAPESHIFT_FORMS") -- Fires on shapeshift changes
+    colorUpdater:RegisterEvent("UNIT_POWER_UPDATE") -- Fires when power values change
+    colorUpdater:RegisterEvent("UNIT_MAXPOWER") -- Fires when max power changes
+    
+    -- Group and party events
+    colorUpdater:RegisterEvent("GROUP_ROSTER_UPDATE")
+    colorUpdater:RegisterEvent("PARTY_MEMBER_ENABLE")
+    colorUpdater:RegisterEvent("PARTY_MEMBER_DISABLE")
+    
+    -- Target of target and focus target specific events
+    colorUpdater:RegisterEvent("UNIT_TARGET")  -- Fires when any unit changes target
+    
+    colorUpdater:SetScript("OnEvent", function(self, event, ...)
+        local unit = ...
+        
+        if event == "UNIT_TARGET" then
+            if unit == "target" or unit == "focus" then
+                -- Target or focus changed their target, update colors immediately
+                UpdateUnitBarColors()
+            end
+        elseif event == "PLAYER_TARGET_CHANGED" then
+            -- Apply colors immediately to target and targettarget
+            if UnitExists("target") then
+                ApplyColorToUnit("target")
+            end
+            if UnitExists("targettarget") then
+                ApplyColorToUnit("targettarget")
+            end
+        elseif event == "PLAYER_FOCUS_CHANGED" then
+            -- Apply colors immediately to focus and focustarget
+            if UnitExists("focus") then
+                ApplyColorToUnit("focus")
+            end
+            if UnitExists("focustarget") then
+                ApplyColorToUnit("focustarget")
+            end
+elseif event == "UNIT_PET" then
+        -- Apply color immediately to pet
+        if UnitExists("pet") then
+            ApplyColorToUnit("pet")
+        end
+    elseif event == "UNIT_DISPLAYPOWER" or event == "UPDATE_SHAPESHIFT_FORMS" then
+        -- Handle druid form changes - let the existing OnUpdate handle the details
+        if unit == "player" or not unit then
+            Debug("Form change event detected, power bar OnUpdate will handle it")
+        end
+    elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" then
+        -- These are handled by the power bar's own OnUpdate script
+        if unit == "player" then
+            Debug("Power update event for player")
+        end
+    else
+        -- For other events, update all colors
+        UpdateUnitBarColors()
+    end
+    end)
+    
+    self.colorUpdater = colorUpdater
+    
+    Debug("Enhanced color updater setup complete")
+end
+
+-- Function to initialize colors on all existing units
+function module:InitializeAllColors()
+    Debug("Initializing colors for all units")
+    
+    -- Apply colors immediately to all existing units
+    local units = {"player", "target", "focus", "pet", "targettarget", "focustarget"}
+    
+    for _, unit in ipairs(units) do
+        if UnitExists(unit) then
+            ApplyColorToUnit(unit)
+        end
+    end
+    
+    Debug("Color initialization complete")
+end
+
+-- === UPDATE FUNCTIONS ===
+
+function module:UpdateStatusbarTextures(unitName)
+    local config = ns.barConfig() or {}
+    local unitLower = unitName:lower()
+    
+    -- Update health bar texture
+    local healthBar = self[unitLower .. "HealthBar"]
+    if healthBar and healthBar.health then
+        local textureName = config[unitName:upper() .. "_STATUSBAR_TEXTURE"] or "g1"
+        local texture = LSM:Fetch("statusbar", textureName)
+        healthBar.health:SetStatusBarTexture(texture)
+        Debug("Updated health bar texture for " .. unitName .. " to " .. textureName)
+    end
+    
+    -- Update power bar texture
+    local powerBar = self[unitLower .. "PowerBar"]
+    if powerBar and powerBar.power then
+        local textureName = config[unitName:upper() .. "_POWER_STATUSBAR_TEXTURE"] or "g1"
+        local texture = LSM:Fetch("statusbar", textureName)
+        powerBar.power:SetStatusBarTexture(texture)
+        
+        -- Also update the power gain bar if it exists
+        if powerBar.power.powerGain then
+            powerBar.power.powerGain:SetStatusBarTexture(texture)
+        end
+        
+        Debug("Updated power bar texture for " .. unitName .. " to " .. textureName)
+    end
+end
+
+function module:UpdateAllStatusbarTextures()
+    for _, unit in ipairs({"Player", "Target", "Focus", "Pet", "Targetoftarget", "Focusoftarget"}) do
+        self:UpdateStatusbarTextures(unit)
+    end
+end
+
+function module:UpdateBarDimensions(unit)
+    local config = ns.barConfig() or {}
+    local unitLower = unit:lower()
+    
+    -- Update health bar dimensions
+    local healthBar = self[unitLower .. "HealthBar"]
+    if healthBar then
+        local width = config[unit:upper() .. "_BAR_WIDTH"] or 125
+        local height = config[unit:upper() .. "_BAR_HEIGHT"] or 25
+        healthBar:SetSize(width, height)
+        
+        -- Store the dimensions in the shared namespace for use by other modules
+        ns.barDimensions[unitLower .. "HealthBar"] = {width = width, height = height}
+        
+        Debug("Updated health bar size for " .. unit .. " (backdrop auto-resizes)")
+        
+        -- Update glass overlay using the same pattern as before
+        if healthBar.glass then
+            healthBar.glass:SetSize(width - 1, height)
+            Debug("Updated glass size for " .. unit .. " to " .. (width - 1) .. "x" .. height)
+        else
+            Debug("Glass not found for " .. unit)
+        end
+    end
+    
+    -- Update power bar dimensions
+    local powerBar = self[unitLower .. "PowerBar"]
+    if powerBar then
+        local powerWidth = config[unit:upper() .. "_POWER_WIDTH"] or 80
+        local powerHeight = config[unit:upper() .. "_POWER_HEIGHT"] or 12
+        powerBar:SetSize(powerWidth, powerHeight)
+        
+        -- Store the dimensions in the shared namespace for use by other modules
+        ns.barDimensions[unitLower .. "PowerBar"] = {width = powerWidth, height = powerHeight}
+        
+        Debug("Updated power bar size for " .. unit .. " (backdrop auto-resizes)")
+    end
+    
+    Debug("Updated bar dimensions for " .. unit)
+end
+
+function module:UpdateBarPositions(unit)
+    local positions = ns.barPositions() or {}
+    local unitLower = unit:lower()
+    
+    -- Update health bar position - keep FollowFrameAnchor but with current saved offset
+    local healthBar = self[unitLower .. "HealthBar"]
+    if healthBar then
+        -- Get the current saved position offset or use defaults
+        local xOffset = 30  -- Default for player
+        local yOffset = 0
+        
+        if positions[unitLower .. "Health"] then
+            local savedPos = positions[unitLower .. "Health"]
+            xOffset = savedPos[3] or xOffset
+            yOffset = savedPos[4] or yOffset
+        else
+            -- Set default offsets based on unit
+            if unitLower == "player" then
+                xOffset = 30
+            elseif unitLower == "target" or unitLower == "focus" then
+                xOffset = -30
+            elseif unitLower == "pet" then
+                xOffset = 0
+            elseif unitLower == "targetoftarget" or unitLower == "focusoftarget" then
+                xOffset = 0
+            end
+        end
+        
+        -- Clear existing points and set new position with FollowFrameAnchor behavior
+        healthBar:ClearAllPoints()
+        
+        local parentFrame, followHookKey
+        if unitLower == "player" then
+            parentFrame = PlayerFrame
+            followHookKey = "playerHealth"
+        elseif unitLower == "target" then
+            parentFrame = TargetFrame
+            followHookKey = "targetHealth"
+        elseif unitLower == "focus" then
+            parentFrame = FocusFrame
+            followHookKey = "focusHealth"
+        elseif unitLower == "pet" then
+            parentFrame = PetFrame
+            followHookKey = "petHealth"
+        elseif unitLower == "targetoftarget" then
+            parentFrame = TargetFrameToT
+            followHookKey = "targetoftargetHealth"
+        elseif unitLower == "focusoftarget" then
+            parentFrame = FocusFrameToT
+            followHookKey = "focusoftargetHealth"
+        end
+        
+        if parentFrame then
+            healthBar:SetPoint("CENTER", parentFrame, "CENTER", xOffset, yOffset)
+            
+            -- Re-hook the SetPoint to maintain following behavior with current offsets
+            if not healthBar.followHooked then
+                hooksecurefunc(parentFrame, "SetPoint", function()
+                    if healthBar and healthBar:IsVisible() then
+                        -- Always get current saved offsets
+                        local currentPositions = ns.barPositions() or {}
+                        local currentSavedPos = currentPositions[followHookKey]
+                        local currentXOffset = currentSavedPos and currentSavedPos[3] or xOffset
+                        local currentYOffset = currentSavedPos and currentSavedPos[4] or yOffset
+                        
+                        healthBar:ClearAllPoints()
+                        healthBar:SetPoint("CENTER", parentFrame, "CENTER", currentXOffset, currentYOffset)
+                    end
+                end)
+                healthBar.followHooked = true
+            end
+        end
+        
+        Debug("Updated health bar position for " .. unit .. " with offset: " .. xOffset .. ", " .. yOffset)
+    end
+    
+    -- Update power bar position
+    self:UpdatePowerPosition(unit)
+end
+
+-- Modify the existing function to apply saved positions on startup
+function module:LoadSavedPositions()
+    for _, unit in ipairs({"Player", "Target", "Focus", "Pet", "Targetoftarget", "Focusoftarget"}) do
+        self:UpdateBarPositions(unit)
+    end
+end
+
+-- Keep this function for reset functionality
+function module:ApplyDefaultHealthBarPosition(unit)
+    local unitLower = unit:lower()
+    local healthBar = self[unitLower .. "HealthBar"]
+    
+    if not healthBar then return end
+    
+    healthBar:ClearAllPoints()
+    
+    -- Apply default offsets
+    local defaultXOffset = 0
+    local defaultYOffset = 0
+    
+    if unitLower == "player" then
+        defaultXOffset = 30
+    elseif unitLower == "target" or unitLower == "focus" then
+        defaultXOffset = -30
+    elseif unitLower == "pet" then
+        defaultXOffset = 0
+    elseif unitLower == "targetoftarget" or unitLower == "focusoftarget" then
+        defaultXOffset = 0
+    end
+    
+    local parentFrame
+    if unitLower == "player" then
+        parentFrame = PlayerFrame
+    elseif unitLower == "target" then
+        parentFrame = TargetFrame
+    elseif unitLower == "focus" then
+        parentFrame = FocusFrame
+    elseif unitLower == "pet" then
+        parentFrame = PetFrame
+    elseif unitLower == "targetoftarget" then
+        parentFrame = TargetFrameToT
+    elseif unitLower == "focusoftarget" then
+        parentFrame = FocusFrameToT
+    end
+    
+    if parentFrame then
+        healthBar:SetPoint("CENTER", parentFrame, "CENTER", defaultXOffset, defaultYOffset)
+    end
+    
+    Debug("Applied default position for " .. unit .. " with offset: " .. defaultXOffset .. ", " .. defaultYOffset)
+end
+
+function module:UpdatePowerPosition(unit)
+    local config = ns.barConfig() or {}
+    local unitLower = unit:lower()
+    
+    local healthBar = self[unitLower .. "HealthBar"]
+    local powerBar = self[unitLower .. "PowerBar"]
+    
+    if healthBar and powerBar then
+        local xOffset = config[unit:upper() .. "_POWER_X_OFFSET"] or 0
+        local yOffset = config[unit:upper() .. "_POWER_Y_OFFSET"] or -4
+        
+        powerBar:ClearAllPoints()
+        powerBar:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", xOffset, yOffset)
+        Debug("Updated power bar position for " .. unit)
+    end
+end
+
+function module:UpdateBarColors(unit)
+    local config = ns.barConfig() or {}
+    local unitLower = unit:lower()
+    
+    -- Update health bar border color
+    local healthBar = self[unitLower .. "HealthBar"]
+    if healthBar and healthBar.border then
+        local color = config[unit:upper() .. "_BORDER_COLOR"] or {0.5, 0.5, 0.5, 1}
+        healthBar.border:SetVertexColor(unpack(color))
+    end
+    
+    -- Update power bar border color
+    local powerBar = self[unitLower .. "PowerBar"]
+    if powerBar and powerBar.border then
+        local color = config[unit:upper() .. "_POWER_BORDER_COLOR"] or {0.5, 0.5, 0.5, 1}
+        powerBar.border:SetVertexColor(unpack(color))
+    end
+    
+    -- Apply class colors if enabled
+    if config[unit:upper() .. "_USE_CLASS_COLORS"] ~= false and healthBar and healthBar.health then
+        -- This will trigger color update via the existing color update mechanism
+        if UpdateUnitBarColors then
+            UpdateUnitBarColors()
+        end
+    end
+    
+    Debug("Updated bar colors for " .. unit)
+end
+
+-- Add this new function to handle form changes:
+function module:UpdatePowerBarForFormChange(unit)
+    local unitLower = unit:lower()
+    local powerBar = self[unitLower .. "PowerBar"]
+    
+    if not powerBar or not powerBar.power then return end
+    
+    local powerType = UnitPowerType(unit)
+    local maxPower = UnitPowerMax(unit, powerType)
+    local currentPower = UnitPower(unit, powerType)
+    
+    Debug("Form change detected for " .. unit .. " - PowerType: " .. powerType .. ", Max: " .. maxPower .. ", Current: " .. currentPower)
+    
+    -- Reset the power bar values immediately
+    powerBar.power:SetMinMaxValues(0, maxPower)
+    powerBar.power:SetValue(currentPower)
+    powerBar.power.powerGain:SetMinMaxValues(0, maxPower)
+    powerBar.power.powerGain:SetValue(currentPower)
+    
+    -- Store the current power type to detect changes
+    powerBar.power.powerType = powerType
+    
+    -- Reset all cached values to prevent animation issues
+    powerBar.power.curPower = currentPower
+    powerBar.power.tarPower = currentPower
+    powerBar.power.previousPower = currentPower
+    powerBar.power.powerGain.curValue = currentPower
+    
+    -- Update power bar color based on power type
+    local r, g, b, a = ns.GetPowerColor(powerType)
+    if r and g and b and a then
+        powerBar.power.powerGain:SetStatusBarColor(r, g, b, a)
+    else
+        -- Fallback to default power colors if ns.GetPowerColor doesn't exist
+        local powerColor = PowerBarColor[powerType]
+        if powerColor then
+            powerBar.power.powerGain:SetStatusBarColor(powerColor.r, powerColor.g, powerColor.b)
+        end
+    end
+    
+    -- Clear any active loss animations
+    if powerBar.power.activeLossAnims then
+        for _, anim in ipairs(powerBar.power.activeLossAnims) do
+            if anim.anim:IsPlaying() then
+                anim.anim:Stop()
+            end
+            anim.fragment:Hide()
+            anim.fragment:SetParent(nil)
+        end
+        powerBar.power.activeLossAnims = {}
+    end
+    
+    Debug("Updated power bar for form change: " .. unit)
+end
+
+-- Add this function to update power bar values without changing the max
+function module:UpdatePowerBarValues(unit)
+    local unitLower = unit:lower()
+    local powerBar = self[unitLower .. "PowerBar"]
+    
+    if not powerBar or not powerBar.power then return end
+    
+    local powerType = UnitPowerType(unit)
+    local maxPower = UnitPowerMax(unit, powerType)
+    local currentPower = UnitPower(unit, powerType)
+    
+    -- Only update if the power type hasn't changed (form change is handled separately)
+    if powerBar.power.powerType == powerType then
+        powerBar.power:SetMinMaxValues(0, maxPower)
+        powerBar.power:SetValue(currentPower)
+        powerBar.power.powerGain:SetMinMaxValues(0, maxPower)
+        powerBar.power.powerGain:SetValue(currentPower)
+        
+        -- Update cached values
+        powerBar.power.curPower = currentPower
+        powerBar.power.tarPower = currentPower
+        powerBar.power.previousPower = currentPower
+        powerBar.power.powerGain.curValue = currentPower
+    end
+end
+
+-- Helper function to get health bar by unit name
+function module:GetHealthBar(unitName)
+    local unit = unitName:lower()
+    if unit == "player" then
+        return self.playerHealthBar
+    elseif unit == "target" then
+        return self.targetHealthBar
+    elseif unit == "focus" then
+        return self.focusHealthBar
+    elseif unit == "pet" then
+        return self.petHealthBar
+    elseif unit == "targetoftarget" then
+        return self.targetoftargetHealthBar
+    elseif unit == "focusoftarget" then
+        return self.focusoftargetHealthBar
+    end
+    return nil
+end
+
+-- Add a function to update health text display
+function module:UpdateHealthText()
+    local config = ns.barConfig() or {}
+    local showText = config.SHOW_HEALTH_TEXT or false
+    
+    for _, unit in ipairs({"player", "target", "focus", "pet", "targetoftarget", "focusoftarget"}) do
+        local healthBar = self[unit .. "HealthBar"]
+        if healthBar then
+            if showText and not healthBar.healthText then
+                -- Add health text if needed
+                if module.AddHealthText then
+                    module.AddHealthText(healthBar)
+                    Debug("Added health text to " .. unit)
+                end
+            elseif not showText and healthBar.healthText then
+                -- Remove health text if needed
+                if healthBar.healthText then
+                    healthBar.healthText:Hide()
+                    healthBar.healthText = nil
+                    Debug("Removed health text from " .. unit)
+                end
+            end
+        end
+    end
+end
+
+-- === MAIN MODULE FUNCTIONS ===
+
+-- Module Initialization
+function module:OnInitialize()
+    Debug("OnInitialize called")
+    addon:RegisterModule("bars", self)
+end
+
+function module:OnEnable()
+    Debug("OnEnable called")
+    
+    -- IMPORTANT: Clean up any existing setup first
+    if self.colorUpdater then
+        self.colorUpdater:UnregisterAllEvents()
+        self.colorUpdater:SetScript("OnEvent", nil)
+        self.colorUpdater = nil
+    end
+    
+    -- Only create bars if they don't already exist - NOW USING CREATION MODULE
+    if not self.playerHealthBar then
+        -- Use the creation module instead of local function
+        if ns.barsCreation and ns.barsCreation.CreateBars then
+            ns.barsCreation.CreateBars()
+        else
+            error("bars_creation.lua module not loaded properly!")
+        end
+    end
+    
+    -- Initialize cast bar system (after bars are created)
+    module.InitializeCleanCastBarSystem()
+    
+    -- Setup enhanced color updater system
+    self:SetupColorUpdater()
+    
+    -- Setup CUSTOM_CLASS_COLORS callback if available
+    if CUSTOM_CLASS_COLORS and CUSTOM_CLASS_COLORS.RegisterCallback then
+        CUSTOM_CLASS_COLORS:RegisterCallback(UpdateUnitBarColors)
+    end
+    
+    -- Show bars if they were hidden
+    if self.playerHealthBar then self.playerHealthBar:Show() end
+    if self.playerPowerBar then self.playerPowerBar:Show() end
+    if self.targetHealthBar then self.targetHealthBar:Show() end
+    if self.targetPowerBar then self.targetPowerBar:Show() end
+    if self.focusHealthBar then self.focusHealthBar:Show() end
+    if self.focusPowerBar then self.focusPowerBar:Show() end
+    -- NEW: Show additional bars
+    if self.petHealthBar then self.petHealthBar:Show() end
+    if self.petPowerBar then self.petPowerBar:Show() end
+    if self.targetoftargetHealthBar then self.targetoftargetHealthBar:Show() end
+    if self.focusoftargetHealthBar then self.focusoftargetHealthBar:Show() end
+    
+    -- Initialize colors IMMEDIATELY after showing bars (no delay)
+    self:InitializeAllColors()
+    
+    -- Strip default UI only once
+    self:StripDefaultUI()
+    
+    self:UpdateAllStatusbarTextures()
+    self:LoadSavedPositions()
+    
+    -- Hook sArena's test function to show test castbars
+    local function HookSArenaTest()
+        if _G.sArenaFrame and _G.sArenaFrame.ToggleTest then
+            hooksecurefunc(_G.sArenaFrame, "ToggleTest", function(self)
+                if self.testing then
+                    -- sArena entered test mode - show test castbars
+                    for i = 1, 3 do
+                        local castBar = module["arena" .. i .. "CastBar"]
+                        if castBar then
+                            -- Different test spells for variety
+                            local testSpells = {
+                                {"Greater Heal", "Interface\\Icons\\Spell_Holy_GreaterHeal"},
+                                {"Fireball", "Interface\\Icons\\Spell_Fire_FlameBolt"},
+                                {"Frostbolt", "Interface\\Icons\\Spell_Frost_FrostBolt02"}
+                            }
+                            local spell = testSpells[i] or testSpells[1]
+                            castBar:StartCast(spell[1], spell[2], GetTime() * 1000, (GetTime() + 3) * 1000, true, nil)
+                        end
+                    end
+                else
+                    -- sArena exited test mode - hide test castbars
+                    for i = 1, 3 do
+                        local castBar = module["arena" .. i .. "CastBar"]
+                        if castBar then
+                            castBar:StopCast()
+                            module.StopHolderAnimations(castBar)
+                        end
+                    end
+                end
+            end)
+        end
+    end
+
+    -- Call this after a short delay to ensure sArena is loaded
+    C_Timer.After(2, HookSArenaTest)
+    
+    Debug("Cast bar system initialized")
+end
+
+-- Module Disable
+function module:OnDisable()
+    Debug("OnDisable called")
+    
+    -- Hide custom bars
+    if self.playerHealthBar then self.playerHealthBar:Hide() end
+    if self.playerPowerBar then self.playerPowerBar:Hide() end
+    if self.targetHealthBar then self.targetHealthBar:Hide() end
+    if self.targetPowerBar then self.targetPowerBar:Hide() end
+    if self.focusHealthBar then self.focusHealthBar:Hide() end
+    if self.focusPowerBar then self.focusPowerBar:Hide() end
+    -- NEW: Hide additional bars
+    if self.petHealthBar then self.petHealthBar:Hide() end
+    if self.petPowerBar then self.petPowerBar:Hide() end
+    if self.targetoftargetHealthBar then self.targetoftargetHealthBar:Hide() end
+    if self.focusoftargetHealthBar then self.focusoftargetHealthBar:Hide() end
+    
+    for i = 1, 3 do
+        if self["arena" .. i .. "CastBar"] then
+            module.CleanupCastBar(self["arena" .. i .. "CastBar"])
+            self["arena" .. i .. "CastBar"] = nil
+        end
+    end
+    
+    -- Unregister color updater and clean up
+    if self.colorUpdater then
+        self.colorUpdater:UnregisterAllEvents()
+        self.colorUpdater:SetScript("OnEvent", nil)
+        self.colorUpdater = nil
+    end
+    
+    -- Unregister CUSTOM_CLASS_COLORS callback if it exists
+    if CUSTOM_CLASS_COLORS and CUSTOM_CLASS_COLORS.UnregisterCallback then
+        CUSTOM_CLASS_COLORS:UnregisterCallback(UpdateUnitBarColors)
+    end
+end
+
+-- Reset Positions
+function module:ResetPositions()
+    Debug("ResetPositions called")
+    
+    local config = ns.barConfig()
+    if not config then return end
+    
+    if self.playerHealthBar then
+        self.playerHealthBar:ClearAllPoints()
+        self.playerHealthBar:SetPoint("CENTER", PlayerFrame, "CENTER", 30, 0)
+    end
+    
+    if self.playerPowerBar then
+        self.playerPowerBar:ClearAllPoints()
+        self.playerPowerBar:SetPoint("TOPLEFT", self.playerHealthBar, "BOTTOMLEFT", 
+            config.PLAYER_POWER_X_OFFSET, 
+            config.PLAYER_POWER_Y_OFFSET)
+    end
+    
+    if self.targetHealthBar then
+        self.targetHealthBar:ClearAllPoints()
+        self.targetHealthBar:SetPoint("CENTER", TargetFrame, "CENTER", -30, 0)
+    end
+    
+    if self.targetPowerBar then
+        self.targetPowerBar:ClearAllPoints()
+        self.targetPowerBar:SetPoint("TOPLEFT", self.targetHealthBar, "BOTTOMLEFT", 
+            config.TARGET_POWER_X_OFFSET, 
+            config.TARGET_POWER_Y_OFFSET)
+    end
+    
+    if self.focusHealthBar then
+        self.focusHealthBar:ClearAllPoints()
+        self.focusHealthBar:SetPoint("CENTER", FocusFrame, "CENTER", -30, 0)
+    end
+    
+    if self.focusPowerBar then
+        self.focusPowerBar:ClearAllPoints()
+        self.focusPowerBar:SetPoint("TOPLEFT", self.focusHealthBar, "BOTTOMLEFT", 
+            config.FOCUS_POWER_X_OFFSET, 
+            config.FOCUS_POWER_Y_OFFSET)
+    end
+    
+    -- NEW: Reset additional frames
+    if self.petHealthBar then
+        self.petHealthBar:ClearAllPoints()
+        self.petHealthBar:SetPoint("CENTER", PetFrame, "CENTER", 0, 0)
+    end
+    
+    if self.petPowerBar then
+        self.petPowerBar:ClearAllPoints()
+        self.petPowerBar:SetPoint("TOPLEFT", self.petHealthBar, "BOTTOMLEFT", 
+            config.PET_POWER_X_OFFSET or 0, 
+            config.PET_POWER_Y_OFFSET or -2)
+    end
+    
+    if self.targetoftargetHealthBar then
+        self.targetoftargetHealthBar:ClearAllPoints()
+        self.targetoftargetHealthBar:SetPoint("CENTER", TargetFrameToT, "CENTER", 0, 0)
+    end
+    
+    if self.focusoftargetHealthBar then
+        self.focusoftargetHealthBar:ClearAllPoints()
+        self.focusoftargetHealthBar:SetPoint("CENTER", FocusFrameToT, "CENTER", 0, 0)
+    end
+    
+    Debug("All positions reset")
+end
+
+-- Text anchor functions
+function module:UpdateTextAnchors(unit)
+    local unitLower = unit:lower()
+    local healthBarFrame = self[unitLower .. "HealthBar"]
+    local powerBarFrame = self[unitLower .. "PowerBar"]
+    
+    if not healthBarFrame then return end
+    
+    local config = ns.barConfig() or {}
+    local unitUpper = unit:upper()
+    
+    -- Update level text to portrait overlay with custom offsets
+    if healthBarFrame.levelText then
+        local portraitFrame = _G["rnxm" .. unit:sub(1,1):upper() .. unit:sub(2) .. "PortraitOverlay"]
+        if portraitFrame then
+            local xOffset = config[unitUpper .. "_LEVEL_TEXT_X_OFFSET"] or -5
+            local yOffset = config[unitUpper .. "_LEVEL_TEXT_Y_OFFSET"] or 15
+            
+            healthBarFrame.levelText:ClearAllPoints()
+            healthBarFrame.levelText:SetPoint("TOPRIGHT", portraitFrame, "TOPRIGHT", xOffset, yOffset)
+        end
+    end
+    
+    -- Update name text to health bar (all units)
+    if healthBarFrame.nameText then
+        local xOffset = config[unitUpper .. "_NAME_TEXT_X_OFFSET"] or 0
+        local yOffset = config[unitUpper .. "_NAME_TEXT_Y_OFFSET"] or 15
+        
+        healthBarFrame.nameText:ClearAllPoints()
+        healthBarFrame.nameText:SetPoint("TOP", healthBarFrame, "TOP", xOffset, yOffset)
+    end
+
+    -- Update power text to power bar (all units)
+    if healthBarFrame.powerText and powerBarFrame then
+        local xOffset = config[unitUpper .. "_POWER_TEXT_X_OFFSET"] or 0
+        local yOffset = config[unitUpper .. "_POWER_TEXT_Y_OFFSET"] or 0
+        
+        healthBarFrame.powerText:ClearAllPoints()
+        healthBarFrame.powerText:SetPoint("CENTER", powerBarFrame, "CENTER", xOffset, yOffset)
+    end
+    
+    -- Force text visibility update based on config
+    if config[unitUpper .. "_SHOW_LEVEL_TEXT"] and healthBarFrame.levelText then
+        healthBarFrame.levelText:Show()
+    elseif healthBarFrame.levelText then
+        healthBarFrame.levelText:Hide()
+    end
+    
+    if config[unitUpper .. "_SHOW_NAME_TEXT"] and healthBarFrame.nameText then
+        healthBarFrame.nameText:Show()
+    elseif healthBarFrame.nameText then
+        healthBarFrame.nameText:Hide()
+    end
+    
+    if config[unitUpper .. "_SHOW_POWER_TEXT"] and healthBarFrame.powerText and powerBarFrame then
+        -- Only show if power text is enabled AND power bar is visible
+        if powerBarFrame:IsShown() then
+            healthBarFrame.powerText:Show()
+        else
+            healthBarFrame.powerText:Hide()
+        end
+    elseif healthBarFrame.powerText then
+        healthBarFrame.powerText:Hide()
+    end
+end
+
+-- Update all text anchors for all units
+function module:UpdateAllTextAnchors()
+    for _, unit in ipairs({"player", "target", "focus", "pet", "targetoftarget", "focusoftarget"}) do
+        self:UpdateTextAnchors(unit)
+    end
+end
+
+-- === CAST BAR FUNCTIONS ===
+
+-- Helper function to get cast bar for a unit
+function module:GetCastBarForUnit(unit)
+    Debug("GetCastBarForUnit called with: " .. tostring(unit))
+    
+    if unit == "player" then
+        return self.playerCastBar
+    elseif unit == "target" then
+        return self.targetCastBar
+    elseif unit == "focus" then
+        return self.focusCastBar
+    elseif unit:match("^arena%d$") then
+        local castBar = self[unit .. "CastBar"]
+        Debug("Looking for: " .. unit .. "CastBar, found: " .. tostring(castBar))
+        return castBar
+    end
+    Debug("No castbar found for unit: " .. unit)
+    return nil
+end
+
+-- Arena castbar update functions
+function module:UpdateCastBarPosition(unit)
+    if not unit:match("^arena%d$") then return end
+    
+    local config = ns.castBarConfig() or {}
+    local castBar = module:GetCastBarForUnit(unit)
+    
+    if not castBar then return end
+    
+    local xOffset = config.ARENA_CASTBAR_X_OFFSET or 0
+    local yOffset = config.ARENA_CASTBAR_Y_OFFSET or -20
+    
+    local parent = castBar:GetParent()
+    if not parent then return end
+    
+    castBar:ClearAllPoints()
+    castBar:SetPoint("BOTTOM", parent, "BOTTOM", xOffset, yOffset)
+    
+    -- Update all holder frames
+    local holders = {
+        castBar.holderFrame,
+        castBar.castCompletionHolder,
+        castBar.channelCompletionHolder,
+        castBar.uninterruptibleHolder
+    }
+    
+    for _, holder in pairs(holders) do
+        if holder then
+            holder:ClearAllPoints()
+            holder:SetPoint("BOTTOM", parent, "BOTTOM", xOffset, yOffset)
+        end
+    end
+    
+    Debug("Updated castbar position for " .. unit)
+end
+
+function module:UpdateCastBarDimensions(unit)
+    if not unit:match("^arena%d$") then return end
+    
+    local config = ns.castBarConfig() or {}
+    local castBar = module:GetCastBarForUnit(unit)
+    
+    if not castBar then return end
+    
+    local width = config.ARENA_CASTBAR_WIDTH or 120
+    local height = config.ARENA_CASTBAR_HEIGHT or 18
+    
+    castBar:SetSize(width, height)
+    
+    -- Update all holder frames
+    local holders = {
+        castBar.holderFrame,
+        castBar.castCompletionHolder,
+        castBar.channelCompletionHolder,
+        castBar.uninterruptibleHolder
+    }
+    
+    for _, holder in pairs(holders) do
+        if holder then
+            holder:SetSize(width, height)
+        end
+    end
+    
+    Debug("Updated castbar dimensions for " .. unit)
+end
+
+function module:UpdateCastBarScale(unit)
+    if not unit:match("^arena%d$") then return end
+    
+    local config = ns.castBarConfig() or {}
+    local castBar = module:GetCastBarForUnit(unit)
+    
+    if not castBar then return end
+    
+    local scale = config.ARENA_CASTBAR_SCALE or 1.0
+    
+    castBar:SetScale(scale)
+    
+    -- Update all holder frames
+    local holders = {
+        castBar.holderFrame,
+        castBar.castCompletionHolder,
+        castBar.channelCompletionHolder,
+        castBar.uninterruptibleHolder
+    }
+    
+    for _, holder in pairs(holders) do
+        if holder then
+            holder:SetScale(scale)
+        end
+    end
+    
+    Debug("Updated castbar scale for " .. unit)
+end
+
+function module:UpdateCastBarColors(unit)
+    if not unit then 
+        Debug("UpdateCastBarColors: unit is nil")
+        return 
+    end
+    
+    Debug("UpdateCastBarColors called for: " .. unit)
+    -- For now, just do nothing since colors are handled in the castbar creation
+    Debug("Color updating not implemented yet for " .. unit)
+end
+
+-- Arena test functions
+function module:StartArenaTest()
+    self.arenaTestActive = true
+    self.arenaTestCycle = 0
+    
+    -- Execute sArena test command the safe way
+    ChatFrame1EditBox:SetText("/sarena test")
+    ChatEdit_SendText(ChatFrame1EditBox, 0)
+    Debug("Executed /sarena test")
+    
+    local testSpells = {
+        -- Regular interruptible casts
+        cast = {
+            {"Greater Heal", "Interface\\Icons\\Spell_Holy_GreaterHeal"},
+            {"Fireball", "Interface\\Icons\\Spell_Fire_FlameBolt"},
+            {"Frostbolt", "Interface\\Icons\\Spell_Frost_FrostBolt02"}
+        },
+        -- Channels
+        channel = {
+            {"Drain Life", "Interface\\Icons\\Spell_Shadow_RequiemOfSouls"},
+            {"Mind Control", "Interface\\Icons\\Spell_Shadow_ShadowWordDominate"},
+            {"Arcane Missiles", "Interface\\Icons\\Spell_Nature_StarFall"}
+        },
+        -- Uninterruptible
+        uninterruptible = {
+            {"Divine Shield", "Interface\\Icons\\Spell_Holy_DivineProtection"},
+            {"Ice Block", "Interface\\Icons\\Spell_Frost_Frost"},
+            {"Anti-Magic Shell", "Interface\\Icons\\Spell_Shadow_AntiMagicShell"}
+        }
+    }
+    
+    local castTypes = {"cast", "channel", "uninterruptible"}
+    
+    local function RunTest()
+        if not self.arenaTestActive then return end
+        
+        -- Cycle through cast types
+        self.arenaTestCycle = (self.arenaTestCycle % 3) + 1
+        local currentType = castTypes[self.arenaTestCycle]
+        local spells = testSpells[currentType]
+        
+        for i = 1, 3 do
+            local castBar = self["arena" .. i .. "CastBar"]
+            if castBar then
+                local spell = spells[i] or spells[1]
+                local isInterruptible = currentType ~= "uninterruptible"
+                
+                if currentType == "channel" then
+                    castBar:SetupChannel(spell[1], spell[2], GetTime() * 1000, (GetTime() + 3) * 1000, isInterruptible)
+                else
+                    castBar:StartCast(spell[1], spell[2], GetTime() * 1000, (GetTime() + 3) * 1000, isInterruptible, nil)
+                end
+            end
+        end
+        
+        Debug("Arena test cycle " .. self.arenaTestCycle .. ": " .. currentType)
+        C_Timer.After(5, RunTest)
+    end
+    
+    RunTest()
+    Debug("Arena cast bar test started")
+end
+
+function module:StopArenaTest()
+    self.arenaTestActive = false
+    
+    -- Execute sArena hide command the safe way
+    ChatFrame1EditBox:SetText("/sarena hide")
+    ChatEdit_SendText(ChatFrame1EditBox, 0)
+    Debug("Executed /sarena hide")
+    
+    for i = 1, 3 do
+        local castBar = self["arena" .. i .. "CastBar"]
+        if castBar then
+            castBar:StopCast()
+            self.StopHolderAnimations(castBar)
+        end
+    end
+    
+    Debug("Arena cast bar test stopped")
+end
+
+-- Arena castbar update function
+function module:UpdateArenaCastBarPosition(unit)
+    local config = ns.castBarConfig() or {}
+    local castBar = module:GetCastBarForUnit(unit)
+    
+    if not castBar then return end
+    
+    local xOffset = config.ARENA_CASTBAR_X_OFFSET or 0
+    local yOffset = config.ARENA_CASTBAR_Y_OFFSET or -20
+    
+    -- Get parent frame (sArena frame)
+    local parent = castBar:GetParent()
+    if not parent then return end
+    
+    castBar:ClearAllPoints()
+    castBar:SetPoint("BOTTOM", parent, "BOTTOM", xOffset, yOffset)
+    
+    -- Update all holder frames too
+    local holders = {
+        castBar.holderFrame,
+        castBar.castCompletionHolder,
+        castBar.channelCompletionHolder,
+        castBar.uninterruptibleHolder
+    }
+    
+    for _, holder in pairs(holders) do
+        if holder then
+            holder:ClearAllPoints()
+            holder:SetPoint("BOTTOM", parent, "BOTTOM", xOffset, yOffset)
+        end
+    end
+    
+    Debug("Updated arena cast bar position for " .. unit .. " to " .. xOffset .. ", " .. yOffset)
+end
+
+-- Function to disable sArena's castbars by hooking their creation
+function module:DisableSArenaCastBars()
+    -- Hook sArena's layout initialization to skip castbar creation
+    if sArenaFrame and sArenaFrame.layoutdb then
+        local layoutName = sArenaFrame.layoutdb.profile.currentLayout
+        local layout = sArenaFrame.layouts and sArenaFrame.layouts[layoutName]
+        
+        if layout and layout.defaultSettings and layout.defaultSettings.castBar then
+            -- Store original setting and disable
+            self.originalSArenaCastBarSetting = layout.defaultSettings.castBar
+            layout.defaultSettings.castBar = nil
+            Debug("Disabled sArena castbar in layout: " .. layoutName)
+        end
+    end
+    
+    -- Alternative: Hook the castbar update function
+    if sArenaFrame and sArenaFrame.UpdateCastBarSettings then
+        if not self.hookedSArenaCastBar then
+            self.originalUpdateCastBarSettings = sArenaFrame.UpdateCastBarSettings
+            sArenaFrame.UpdateCastBarSettings = function() end -- Do nothing
+            self.hookedSArenaCastBar = true
+            Debug("Hooked sArena UpdateCastBarSettings")
+        end
+    end
+end
+
+-- Function to re-enable sArena's castbars
+function module:EnableSArenaCastBars()
+    -- Restore original castbar settings
+    if sArenaFrame and sArenaFrame.layoutdb then
+        local layoutName = sArenaFrame.layoutdb.profile.currentLayout
+        local layout = sArenaFrame.layouts and sArenaFrame.layouts[layoutName]
+        
+        if layout and layout.defaultSettings and self.originalSArenaCastBarSetting then
+            layout.defaultSettings.castBar = self.originalSArenaCastBarSetting
+            self.originalSArenaCastBarSetting = nil
+            Debug("Restored sArena castbar in layout: " .. layoutName)
+        end
+    end
+    
+    -- Restore hooked function
+    if self.hookedSArenaCastBar and self.originalUpdateCastBarSettings then
+        sArenaFrame.UpdateCastBarSettings = self.originalUpdateCastBarSettings
+        self.originalUpdateCastBarSettings = nil
+        self.hookedSArenaCastBar = false
+        Debug("Restored sArena UpdateCastBarSettings")
+    end
+end
+
+-- === DEBUG COMMANDS ===
+
+-- Add a slash command for debugging
+SLASH_RNXMUIDEBUG1 = "/rnxmuidebug"
+SlashCmdList["RNXMUIDEBUG"] = function()
+    Debug("=== Bar Debug Information ===")
+    
+    if not module then
+        Debug("ERROR: Module is nil!")
+        return
+    end
+    
+    Debug("Bars module exists:", module ~= nil)
+    Debug("playerHealthBar exists:", module.playerHealthBar ~= nil)
+    Debug("targetHealthBar exists:", module.targetHealthBar ~= nil)
+    Debug("focusHealthBar exists:", module.focusHealthBar ~= nil)
+    Debug("petHealthBar exists:", module.petHealthBar ~= nil)
+    Debug("targetoftargetHealthBar exists:", module.targetoftargetHealthBar ~= nil)
+    Debug("focusoftargetHealthBar exists:", module.focusoftargetHealthBar ~= nil)
+    
+    if module.playerHealthBar then
+        Debug("Player health bar info:")
+        Debug("- Width:", module.playerHealthBar:GetWidth())
+        Debug("- Height:", module.playerHealthBar:GetHeight())
+        Debug("- Visible:", module.playerHealthBar:IsVisible())
+        Debug("- Frame strata:", module.playerHealthBar:GetFrameStrata())
+        Debug("- Parent:", module.playerHealthBar:GetParent():GetName())
+    end
+    
+    if module.playerPowerBar then
+        Debug("Player power bar info:")
+        Debug("- Width:", module.playerPowerBar:GetWidth())
+        Debug("- Height:", module.playerPowerBar:GetHeight())
+        Debug("- Visible:", module.playerPowerBar:IsVisible())
+        Debug("- Position:", module.playerPowerBar:GetPoint())
+        
+        -- Debug the actual power bar frame
+        if module.playerPowerBar.power then
+            local bar = module.playerPowerBar.power
+            Debug("- Power bar exists:", bar ~= nil)
+            Debug("- Power type:", bar.powerType or "unknown")
+            Debug("- Current power:", UnitPower("player"))
+            Debug("- Max power:", UnitPowerMax("player"))
+            Debug("- Power bar visible:", bar:IsVisible())
+        end
+    end
+    
+    Debug("=== Debug Complete ===")
+end

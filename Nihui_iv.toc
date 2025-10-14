@@ -1,0 +1,40 @@
+## Interface: 110002
+## Title: Nihui |cff9482c9IV|r
+## Notes: Modern inventory management with Nihui styling
+## Author: Nihui
+## Version: 0.2.0
+## SavedVariables: NihuiIVDB
+
+# Test load
+# test_load.lua
+# test_items_debug.lua
+
+# Config (Options and defaults)
+config\defaults.lua
+config\options.lua
+
+# Components (Pure logic from BetterBags - no layout)
+components\constants.lua
+
+# Test components after constants
+test_components.lua
+components\events.lua
+components\search.lua
+components\categories.lua
+components\grid.lua
+components\money.lua
+components\currency.lua
+components\bags.lua
+components\items.lua
+components\stacking.lua
+components\cache.lua
+components\characterselect.lua
+components\slots.lua
+components\filters.lua
+
+# Layouts (Beautiful Nihui-styled UI using components)
+layouts\backpack.lua
+layouts\bank.lua
+
+# Core (Initialization)
+core\init.lua

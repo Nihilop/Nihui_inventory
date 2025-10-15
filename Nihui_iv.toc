@@ -5,10 +5,6 @@
 ## Version: 0.2.0
 ## SavedVariables: NihuiIVDB
 
-# Test load
-# test_load.lua
-# test_items_debug.lua
-
 # Config (Options and defaults)
 config\defaults.lua
 config\options.lua
@@ -17,7 +13,6 @@ config\options.lua
 components\constants.lua
 
 # Test components after constants
-test_components.lua
 components\events.lua
 components\search.lua
 components\categories.lua

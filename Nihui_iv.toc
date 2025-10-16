@@ -1,4 +1,4 @@
-## Interface: 110002
+## Interface: 110205
 ## Title: Nihui |cff9482c9IV|r
 ## Notes: Modern inventory management with Nihui styling
 ## Author: Nihui

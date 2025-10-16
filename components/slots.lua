@@ -35,6 +35,18 @@ local SLOT_STYLE = {
     -- Overlay texture (decorative border under quality border)
     overlayAtlas = "UI-HUD-CoolDownManager-IconOverlay",
 
+    -- Quality/Rarity border (colored glow for item rarity)
+    quality = {
+        atlas = "perks-slot-glow",      -- Atlas for quality border glow
+        sizeRatio = 0.9,                -- Size relative to slot (1.0 = same size)
+        alpha = 0.5,                    -- Transparency (0-1)
+        blendMode = "ADD",              -- Blend mode: "ADD" for glow effect
+        drawLayer = "OVERLAY",          -- Draw layer (OVERLAY = on top of icon)
+        sublevel = 0,                   -- Sublevel within draw layer
+        useBrightness = true,          -- Multiply colors for extra brightness?
+        brightnessMultiplier = 1.0,     -- Brightness multiplier (only if useBrightness = true)
+    },
+
     -- Hover/Highlight effect
     hover = {
         atlas = "bags-newitem",  -- Texture for hover effect
@@ -96,7 +108,7 @@ function ns.Components.Slots.CreateSlot(parent, itemData, size)
             itemButton.iconMask = iconMask
         end
 
-        -- Create decorative overlay (BEFORE IconBorder so it's below the quality border)
+        -- Create decorative overlay (black border base)
         local overlayTexture = itemButton:CreateTexture(nil, "ARTWORK", nil, 2)
         local overlaySize = slotSize * SLOT_STYLE.overlaySizeRatio
         overlayTexture:SetSize(overlaySize, overlaySize)
@@ -104,20 +116,23 @@ function ns.Components.Slots.CreateSlot(parent, itemData, size)
         overlayTexture:SetAtlas(SLOT_STYLE.overlayAtlas, false)
         itemButton.nihuiOverlay = overlayTexture
 
-        -- IMPORTANT: Resize IconBorder to match button size (fixes quality border scaling)
+        -- Create custom quality border texture (for rarity glow on top of black border)
+        local qualityBorder = itemButton:CreateTexture(nil, SLOT_STYLE.quality.drawLayer, nil, SLOT_STYLE.quality.sublevel)
+        local qualitySize = slotSize * SLOT_STYLE.quality.sizeRatio
+        qualityBorder:SetSize(qualitySize, qualitySize)
+        qualityBorder:SetPoint("CENTER", itemButton, "CENTER", 0, 0)
+        -- Use WHITE atlas so SetVertexColor can colorize it properly (white * color = color)
+        qualityBorder:SetAtlas(SLOT_STYLE.quality.atlas, false)  -- false = don't use atlas size, keep our custom size
+        qualityBorder:SetBlendMode(SLOT_STYLE.quality.blendMode)
+        qualityBorder:Hide()  -- Hidden by default, shown when item has quality
+        itemButton.nihuiQualityBorder = qualityBorder
+
+        -- Keep IconBorder at normal size (we'll use our custom quality border instead)
         if itemButton.IconBorder then
             itemButton.IconBorder:SetSize(slotSize, slotSize)
             itemButton.IconBorder:ClearAllPoints()
             itemButton.IconBorder:SetAllPoints(itemButton)
-
-            -- Apply same circular mask to quality border for consistency
-            local borderMask = itemButton:CreateMaskTexture()
-            local maskSize = slotSize * SLOT_STYLE.maskSizeRatio
-            borderMask:SetSize(maskSize, maskSize)
-            borderMask:SetPoint("CENTER", itemButton, "CENTER", 0, 0)
-            borderMask:SetAtlas(SLOT_STYLE.maskAtlas, false)
-            itemButton.IconBorder:AddMaskTexture(borderMask)
-            itemButton.borderMask = borderMask
+            itemButton.IconBorder:Hide()  -- Hide default IconBorder, we use custom one
         end
 
         -- IMPORTANT: Hide the inner black border (NormalTexture) - it doesn't scale well
@@ -311,26 +326,25 @@ function ns.Components.Slots.UpdateSlot(slot, itemData)
             SetItemButtonDesaturated(button, itemData.isLocked or false)
         end
 
-        -- Set quality border with enhanced glow for epic+ items (skip for empty slot stacks)
-        if not itemData.isEmptySlotStack and itemData.itemQuality and itemData.itemQuality >= Enum.ItemQuality.Common then
+        -- Set custom quality border with standard WoW colors (skip for empty slot stacks)
+        if not itemData.isEmptySlotStack and button.nihuiQualityBorder and itemData.itemQuality and itemData.itemQuality >= Enum.ItemQuality.Uncommon then
             local r, g, b = C_Item.GetItemQualityColor(itemData.itemQuality)
-            button.IconBorder:SetVertexColor(r, g, b, 1)
 
-            -- Enhanced glow effect for Rare (blue) and higher quality items
-            if itemData.itemQuality >= Enum.ItemQuality.Rare then
-                button.IconBorder:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
-                button.IconBorder:SetBlendMode("ADD") -- Glowing effect
-                button.IconBorder:SetTexCoord(14/64, 49/64, 15/64, 50/64)
-            else
-                -- Normal border for common/uncommon
-                button.IconBorder:SetTexture([[Interface\Common\WhiteIconFrame]])
-                button.IconBorder:SetBlendMode("BLEND")
-                button.IconBorder:SetTexCoord(0, 1, 0, 1)
+            -- Apply brightness multiplier if enabled
+            if SLOT_STYLE.quality.useBrightness then
+                local brightness = SLOT_STYLE.quality.brightnessMultiplier
+                r = r * brightness
+                g = g * brightness
+                b = b * brightness
             end
 
-            button.IconBorder:Show()
+            -- Apply colors with configured alpha
+            button.nihuiQualityBorder:SetVertexColor(r, g, b, SLOT_STYLE.quality.alpha)
+            button.nihuiQualityBorder:Show()
         else
-            button.IconBorder:Hide()
+            if button.nihuiQualityBorder then
+                button.nihuiQualityBorder:Hide()
+            end
         end
 
         -- Show item level for armor and weapons (skip for empty slot stacks)

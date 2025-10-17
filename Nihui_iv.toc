@@ -2,7 +2,7 @@
 ## Title: Nihui |cff9482c9IV|r
 ## Notes: Modern inventory management with Nihui styling
 ## Author: Nihui
-## Version: 0.2.1
+## Version: 1.0.0
 ## SavedVariables: NihuiIVDB
 
 # Config (Options and defaults)

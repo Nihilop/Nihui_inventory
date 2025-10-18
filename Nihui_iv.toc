@@ -1,8 +1,10 @@
 ## Interface: 110205
-## Title: Nihui |cff9482c9IV|r
+## Title: |cff00ff00Nihui|r |cffffffffInventory|r
+## Category: NihUI
 ## Notes: Modern inventory management with Nihui styling
 ## Author: Nihui
 ## Version: 1.0.0
+## IconAtlas: GarrMission_MissionIcon-Provision
 ## SavedVariables: NihuiIVDB
 
 # Config (Options and defaults)

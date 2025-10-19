@@ -168,7 +168,7 @@ function ns.Components.CharacterSelect.Create(parent, bagType)
         -- Background
         menu:SetBackdrop({
             bgFile = "Interface\\Buttons\\WHITE8X8",
-            edgeFile = "Interface\\AddOns\\Nihui_uf\\textures\\MirroredFrameSingleUF.tga",
+            edgeFile = "Interface\\AddOns\\Nihui_iv\\textures\\MirroredFrameSingleUF.tga",
             edgeSize = 16,
             insets = {left = 12, right = 12, top = 12, bottom = 12}
         })

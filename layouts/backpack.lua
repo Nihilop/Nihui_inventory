@@ -475,7 +475,7 @@ local function CreateSearchBox(parent)
     border:SetPoint("TOPLEFT", bg, "TOPLEFT", -12, 12)
     border:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 12, -12)
     border:SetBackdrop({
-        edgeFile = "Interface\\AddOns\\Nihui_uf\\textures\\MirroredFrameSingleUF.tga",
+        edgeFile = "Interface\\AddOns\\Nihui_iv\\textures\\MirroredFrameSingleUF.tga",
         edgeSize = 16,
         insets = {left = 1, right = 1, top = 1, bottom = 1}
     })
@@ -579,7 +579,7 @@ local function CreateContentFrame(parent)
     border:SetPoint("TOPLEFT", container, "TOPLEFT", -12, 12)
     border:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 12, -12)
     border:SetBackdrop({
-        edgeFile = "Interface\\AddOns\\Nihui_uf\\textures\\MirroredFrameSingleUF.tga",
+        edgeFile = "Interface\\AddOns\\Nihui_iv\\textures\\MirroredFrameSingleUF.tga",
         edgeSize = 16,
         insets = {left = 1, right = 1, top = 1, bottom = 1}
     })

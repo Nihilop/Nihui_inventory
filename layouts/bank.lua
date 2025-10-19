@@ -799,7 +799,7 @@ local function CreateSearchBox(parent, onTextChanged)
     border:SetPoint("TOPLEFT", bg, "TOPLEFT", -12, 12)
     border:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 12, -12)
     border:SetBackdrop({
-        edgeFile = "Interface\\AddOns\\Nihui_uf\\textures\\MirroredFrameSingleUF.tga",
+        edgeFile = "Interface\\AddOns\\Nihui_iv\\textures\\MirroredFrameSingleUF.tga",
         edgeSize = 16,
         insets = {left = 1, right = 1, top = 1, bottom = 1}
     })
@@ -869,20 +869,20 @@ local function CreateProgressBar(parent)
 
     -- Background (texture g1 assombrie comme bar.lua)
     local bg = container:CreateTexture(nil, "BACKGROUND")
-    bg:SetTexture("Interface\\AddOns\\Nihui_uf\\textures\\g1.tga")
+    bg:SetTexture("Interface\\AddOns\\Nihui_iv\\textures\\g1.tga")
     bg:SetAllPoints(container)
     bg:SetVertexColor(0.1, 0.1, 0.1, 0.8)  -- Assombri comme bar.lua
 
     -- Status bar (main bar)
     local statusBar = CreateFrame("StatusBar", nil, container)
     statusBar:SetAllPoints()
-    statusBar:SetStatusBarTexture("Interface\\AddOns\\Nihui_uf\\textures\\g1.tga")
+    statusBar:SetStatusBarTexture("Interface\\AddOns\\Nihui_iv\\textures\\g1.tga")
     statusBar:SetMinMaxValues(0, 1)
     statusBar:SetValue(0)
 
     -- Glass overlay (effet brillant comme bar.lua)
     local glass = statusBar:CreateTexture(nil, "ARTWORK", nil, 7)
-    glass:SetTexture("Interface\\AddOns\\Nihui_uf\\textures\\HPglass.tga")
+    glass:SetTexture("Interface\\AddOns\\Nihui_iv\\textures\\HPGlass.tga")
     glass:SetPoint("TOPLEFT", statusBar, "TOPLEFT", 0, 0)
     glass:SetPoint("BOTTOMRIGHT", statusBar, "BOTTOMRIGHT", 0, 0)
     glass:SetTextureSliceMargins(16, 16, 16, 16)
@@ -900,7 +900,7 @@ local function CreateProgressBar(parent)
     border:SetPoint("TOPLEFT", container, "TOPLEFT", leftInset, topInset)
     border:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", rightInset, bottomInset)
     border:SetBackdrop({
-        edgeFile = "Interface\\AddOns\\Nihui_uf\\textures\\MirroredFrameSingleUF.tga",
+        edgeFile = "Interface\\AddOns\\Nihui_iv\\textures\\MirroredFrameSingleUF.tga",
         edgeSize = 16,
         insets = {left = 1, right = 1, top = 1, bottom = 1}
     })
@@ -910,7 +910,7 @@ local function CreateProgressBar(parent)
 
     -- Spark (animated glow at fill position)
     local spark = statusBar:CreateTexture(nil, "OVERLAY", nil, 6)
-    spark:SetTexture("Interface\\AddOns\\Nihui_uf\\textures\\orangespark.tga")
+    spark:SetTexture("Interface\\AddOns\\Nihui_iv\\media\\orangespark.tga")
     spark:SetSize(20, 14)  -- Hauteur fixe à 14px (même que la progress bar)
     spark:SetBlendMode("ADD")
     spark:Show()
@@ -999,7 +999,7 @@ local function CreateContentFrames(viewParent)
     bankBorder:SetPoint("TOPLEFT", bankCont, "TOPLEFT", -12, 12)
     bankBorder:SetPoint("BOTTOMRIGHT", bankCont, "BOTTOMRIGHT", 12, -12)
     bankBorder:SetBackdrop({
-        edgeFile = "Interface\\AddOns\\Nihui_uf\\textures\\MirroredFrameSingleUF.tga",
+        edgeFile = "Interface\\AddOns\\Nihui_iv\\textures\\MirroredFrameSingleUF.tga",
         edgeSize = 16,
         insets = {left = 1, right = 1, top = 1, bottom = 1}
     })
@@ -1064,7 +1064,7 @@ local function CreateContentFrames(viewParent)
     backpackBorder:SetPoint("TOPLEFT", backpackCont, "TOPLEFT", -12, 12)
     backpackBorder:SetPoint("BOTTOMRIGHT", backpackCont, "BOTTOMRIGHT", 12, -12)
     backpackBorder:SetBackdrop({
-        edgeFile = "Interface\\AddOns\\Nihui_uf\\textures\\MirroredFrameSingleUF.tga",
+        edgeFile = "Interface\\AddOns\\Nihui_iv\\textures\\MirroredFrameSingleUF.tga",
         edgeSize = 16,
         insets = {left = 1, right = 1, top = 1, bottom = 1}
     })
@@ -1318,21 +1318,21 @@ local function CreateTransferModal(parent)
 
     -- Background (texture g1 assombrie)
     local bg = progressContainer:CreateTexture(nil, "BACKGROUND")
-    bg:SetTexture("Interface\\AddOns\\Nihui_uf\\textures\\g1.tga")
+    bg:SetTexture("Interface\\AddOns\\Nihui_iv\\textures\\g1.tga")
     bg:SetAllPoints(progressContainer)
     bg:SetVertexColor(0.1, 0.1, 0.1, 0.8)
 
     -- Status bar (main bar)
     local statusBar = CreateFrame("StatusBar", nil, progressContainer)
     statusBar:SetAllPoints()
-    statusBar:SetStatusBarTexture("Interface\\AddOns\\Nihui_uf\\textures\\g1.tga")
+    statusBar:SetStatusBarTexture("Interface\\AddOns\\Nihui_iv\\textures\\g1.tga")
     statusBar:SetMinMaxValues(0, 1)
     statusBar:SetValue(0)
     statusBar:SetStatusBarColor(0.2, 1, 0.2, 1)  -- Vert par défaut
 
     -- Glass overlay (effet brillant)
     local glass = statusBar:CreateTexture(nil, "ARTWORK", nil, 7)
-    glass:SetTexture("Interface\\AddOns\\Nihui_uf\\textures\\HPglass.tga")
+    glass:SetTexture("Interface\\AddOns\\Nihui_iv\\textures\\HPGlass.tga")
     glass:SetPoint("TOPLEFT", statusBar, "TOPLEFT", 0, 0)
     glass:SetPoint("BOTTOMRIGHT", statusBar, "BOTTOMRIGHT", 0, 0)
     glass:SetTextureSliceMargins(16, 16, 16, 16)
@@ -1345,7 +1345,7 @@ local function CreateTransferModal(parent)
     border:SetPoint("TOPLEFT", progressContainer, "TOPLEFT", -12, 12)
     border:SetPoint("BOTTOMRIGHT", progressContainer, "BOTTOMRIGHT", 12, -12)
     border:SetBackdrop({
-        edgeFile = "Interface\\AddOns\\Nihui_uf\\textures\\MirroredFrameSingleUF.tga",
+        edgeFile = "Interface\\AddOns\\Nihui_iv\\textures\\MirroredFrameSingleUF.tga",
         edgeSize = 16,
         insets = {left = 1, right = 1, top = 1, bottom = 1}
     })
@@ -1354,7 +1354,7 @@ local function CreateTransferModal(parent)
 
     -- Spark (animated glow)
     local spark = statusBar:CreateTexture(nil, "OVERLAY", nil, 6)
-    spark:SetTexture("Interface\\AddOns\\Nihui_uf\\textures\\orangespark.tga")
+    spark:SetTexture("Interface\\AddOns\\Nihui_iv\\media\\orangespark.tga")
     spark:SetSize(20, 14)
     spark:SetBlendMode("ADD")
     spark:Show()

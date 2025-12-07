@@ -241,8 +241,40 @@ function ns.Components.Slots.CreateSlot(parent, itemData, size)
         -- Override the default UpdateTooltip to prevent it from changing our tooltip
         itemButton.UpdateTooltip = function() end
     else
-        -- Reset to default behavior for non-cached items
-        itemButton.UpdateTooltip = nil
+        -- OPTIMIZED: Hook tooltip to add item comparison (SHIFT to compare)
+        -- The template handles basic tooltips, but we need to add comparison manually
+        itemButton:HookScript("OnEnter", function(self)
+            -- Only show comparison if the tooltip is shown and SHIFT is held
+            if GameTooltip:IsShown() and IsShiftKeyDown() and not itemData.isEmpty then
+                GameTooltip_ShowCompareItem()
+            end
+        end)
+
+        -- Hide comparison tooltips when mouse leaves
+        itemButton:HookScript("OnLeave", function(self)
+            -- Hide all shopping/comparison tooltips
+            if GameTooltip.shoppingTooltips then
+                for _, tooltip in pairs(GameTooltip.shoppingTooltips) do
+                    tooltip:Hide()
+                end
+            end
+        end)
+
+        -- Update comparison when modifier keys change (SHIFT press/release)
+        itemButton.UpdateTooltip = function(self)
+            if GameTooltip:IsOwned(self) then
+                if IsShiftKeyDown() and not itemData.isEmpty then
+                    GameTooltip_ShowCompareItem()
+                else
+                    -- Hide comparison tooltips when SHIFT is released
+                    if GameTooltip.shoppingTooltips then
+                        for _, tooltip in pairs(GameTooltip.shoppingTooltips) do
+                            tooltip:Hide()
+                        end
+                    end
+                end
+            end
+        end
     end
 
     -- Update button with item data

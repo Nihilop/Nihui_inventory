@@ -101,6 +101,10 @@ end
 
 -- Toggle bags open/closed
 function ns.Components.Bags.ToggleBags()
+    -- CRITICAL: Always close Blizzard bags and update state first
+    -- This ensures WoW knows bags are "closed" so spells/actions work
+    ns.Components.Bags.CloseBlizzardBags()
+
     if callbacks.onToggleBags then
         -- Wrap in pcall to prevent errors from breaking the bag toggle
         local success, err = pcall(callbacks.onToggleBags)
@@ -131,7 +135,50 @@ local function OnPlayerInteractionHide(event, interactionType)
     end
 end
 
--- Hook global ToggleAllBags function (called when pressing B key)
+-- OPTIMIZED: Create a secure button to properly override the "B" keybind
+local function CreateSecureBagButton()
+    if hooks.secureBagButton then return end
+
+    -- Create a secure action button that will handle the "B" keybind properly
+    local secureButton = CreateFrame("Button", addonName .. "SecureBagButton", UIParent, "SecureActionButtonTemplate")
+    secureButton:SetSize(1, 1) -- Tiny invisible button
+    secureButton:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -1000, -1000) -- Off-screen
+    secureButton:Hide() -- Hidden
+    secureButton:SetAlpha(0) -- Completely transparent
+    secureButton:RegisterForClicks("LeftButtonUp")
+
+    -- Set the button to call our custom toggle function
+    secureButton:SetScript("PostClick", function(self, button, down)
+        -- Toggle our custom bags (CloseBlizzardBags is called inside)
+        ns.Components.Bags.ToggleBags()
+    end)
+
+    -- Enable the button (required for bindings to work)
+    secureButton:Enable()
+
+    -- Wait a frame to ensure everything is loaded, then set bindings
+    C_Timer.After(0, function()
+        -- Clear any existing override bindings first
+        ClearOverrideBindings(secureButton)
+
+        -- Override the default bag binding to use our button
+        -- This prevents WoW from opening its own bags
+        SetOverrideBindingClick(secureButton, true, "B", addonName .. "SecureBagButton", "LeftButton")
+        SetOverrideBindingClick(secureButton, true, "SHIFT-B", addonName .. "SecureBagButton", "LeftButton")
+    end)
+
+    hooks.secureBagButton = secureButton
+end
+
+-- Cleanup function to restore original bindings
+function ns.Components.Bags.Cleanup()
+    if hooks.secureBagButton then
+        ClearOverrideBindings(hooks.secureBagButton)
+        hooks.secureBagButton = nil
+    end
+end
+
+-- Hook global ToggleAllBags function (backup for other addons calling it)
 local function HookToggleAllBags()
     if hooks.toggleAllBags then return end
 
@@ -146,7 +193,7 @@ local function HookToggleAllBags()
     hooks.toggleAllBags = true
 end
 
--- Force close all Blizzard bag frames
+-- Force close all Blizzard bag frames AND update WoW's bag state
 function ns.Components.Bags.CloseBlizzardBags()
     -- Wrap in pcall to prevent errors from breaking bag operations
     pcall(function()
@@ -160,6 +207,16 @@ function ns.Components.Bags.CloseBlizzardBags()
             local bagFrame = _G["ContainerFrame" .. i]
             if bagFrame and bagFrame:IsShown() then
                 bagFrame:Hide()
+            end
+        end
+
+        -- CRITICAL: Update WoW's internal bag open state
+        -- This tells WoW that bags are closed so spells/actions work
+        -- We mark each bag as closed in WoW's tracking
+        for i = 0, NUM_BAG_SLOTS do
+            -- Use CloseBag() to update internal state without triggering events
+            if IsBagOpen(i) then
+                CloseBag(i)
             end
         end
     end)
@@ -215,8 +272,35 @@ function ns.Components.Bags.Initialize()
         end)
     end
 
-    -- Hook ToggleAllBags
+    -- OPTIMIZED: Create secure button to properly override "B" keybind
+    CreateSecureBagButton()
+
+    -- Hook ToggleAllBags (backup for addon calls)
     HookToggleAllBags()
+
+    -- OPTIMIZED: Hook the physical bag button (bottom right of screen)
+    C_Timer.After(1, function()
+        -- Hook MainMenuBarBackpackButton (the physical bag icon)
+        if MainMenuBarBackpackButton then
+            MainMenuBarBackpackButton:HookScript("OnClick", function(self, button)
+                -- Close Blizzard bags
+                ns.Components.Bags.CloseBlizzardBags()
+                -- Toggle our custom bags
+                ns.Components.Bags.ToggleBags()
+            end)
+        end
+
+        -- Also try BagsBar buttons (for different UI layouts)
+        for i = 0, 3 do
+            local bagButton = _G["CharacterBag" .. i .. "Slot"]
+            if bagButton then
+                bagButton:HookScript("OnClick", function(self, button)
+                    ns.Components.Bags.CloseBlizzardBags()
+                    ns.Components.Bags.ToggleBags()
+                end)
+            end
+        end
+    end)
 
     -- Hook OpenAllBags
     hooksecurefunc("OpenAllBags", function()
